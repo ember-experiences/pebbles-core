@@ -1,0 +1,20 @@
+version: '3.8'
+
+services:
+  pebbles:
+    build: .
+    image: pebbles-core:latest
+    container_name: pebbles
+    volumes:
+      - ./config:/root/.config/pebbles
+      - ./data:/root/.local/share/pebbles
+    env_file:
+      - .env
+    restart: unless-stopped
+    environment:
+      - PYTHONUNBUFFERED=1
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

@@ -1,0 +1,80 @@
+# Example Pebbles configuration
+# Save to ~/.config/pebbles/config.yaml
+
+recipients:
+  # Jake — gets surfing and climbing pebbles via Telegram
+  - name: "Jake"
+    telegram_id: 123456789
+    max_daily_pebbles: 3
+    interests:
+      # High-priority surfing interest
+      - tags: ["surfing", "ocean"]
+        keywords:
+          - "surf"
+          - "wave"
+          - "swell"
+          - "ocean"
+          - "barrel"
+        priority: 2
+      
+      # Normal climbing interest with exclusions
+      - tags: ["climbing"]
+        keywords:
+          - "climbing"
+          - "bouldering"
+          - "crag"
+          - "send"
+        negative_keywords:
+          - "indoor"
+          - "gym"
+        priority: 1
+
+  # Friend — gets tech news via email
+  - name: "Alex"
+    email: "alex@example.com"
+    max_daily_pebbles: 5
+    interests:
+      - tags: ["tech", "ai"]
+        keywords:
+          - "artificial intelligence"
+          - "machine learning"
+          - "neural network"
+          - "LLM"
+
+sources:
+  # Hacker News
+  hackernews:
+    enabled: true
+
+  # Reddit subreddits
+  reddit:
+    enabled: true
+    subreddits:
+      - "surfing"
+      - "climbing"
+      - "MachineLearning"
+
+  # RSS feeds
+  rss:
+    enabled: true
+    feeds:
+      - "https://surfline.com/rss"
+      - "https://blog.ycombinator.com/feed"
+
+delivery:
+  telegram:
+    bot_token: "${TELEGRAM_BOT_TOKEN}"
+  
+  email:
+    smtp_host: "smtp.gmail.com"
+    smtp_port: 587
+    smtp_user: "${SMTP_USER}"
+    smtp_password: "${SMTP_PASSWORD}"
+
+matching:
+  # Keyword matching (fast, no ML required)
+  use_semantic_matching: false
+  
+  # Uncomment to enable semantic matching
+  # use_semantic_matching: true
+  # semantic_threshold: 0.35
