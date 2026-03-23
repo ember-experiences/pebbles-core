@@ -1,7 +1,6 @@
-"""
-Pebble delivery — send pebbles to recipients via various channels.
-"""
+"""Delivery adapters for pebbles."""
 
-from pebbles.delivery.telegram import TelegramDelivery
+from .telegram import TelegramDelivery
+from .email import EmailDelivery
 
-__all__ = ["TelegramDelivery"]
+__all__ = ["TelegramDelivery", "EmailDelivery"]
