@@ -1,84 +1,81 @@
-"""
-Hacker News source — fetches top/new/best stories.
-"""
+"""Hacker News source for pebbles."""
+import requests
+from typing import List, Dict, Any
+from tenacity import retry, stop_after_attempt, wait_exponential
 
-import time
-from typing import List
-import httpx
-from pebbles.models import Pebble, SourceType
+from pebbles.log import get_logger
+
+logger = get_logger(__name__)
 
 
 class HackerNewsSource:
-    """Fetch stories from Hacker News API."""
+    """Fetch top stories from Hacker News."""
     
     BASE_URL = "https://hacker-news.firebaseio.com/v0"
-    RATE_LIMIT_DELAY = 1.0  # seconds between requests
     
-    def __init__(self, max_stories: int = 30):
-        self.max_stories = max_stories
-        self.client = httpx.Client(timeout=10.0)
-    
-    def fetch(self, story_type: str = "top") -> List[Pebble]:
-        """
-        Fetch stories from HN.
+    def __init__(self, max_items: int = 30):
+        """Initialize HN source.
         
         Args:
-            story_type: "top", "new", or "best"
+            max_items: Maximum number of top stories to fetch
+        """
+        self.max_items = max_items
+        
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        reraise=True
+    )
+    def _fetch_with_retry(self, url: str) -> Any:
+        """Fetch URL with retry logic.
+        
+        Args:
+            url: URL to fetch
+            
+        Returns:
+            Parsed JSON response
+            
+        Raises:
+            requests.RequestException: If all retries fail
+        """
+        logger.debug(f"Fetching: {url}")
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        return response.json()
+        
+    def fetch(self) -> List[Dict[str, Any]]:
+        """Fetch top stories from HN.
         
         Returns:
-            List of Pebble objects
+            List of story dicts with url, title, score, comments_url
         """
-        endpoint_map = {
-            "top": f"{self.BASE_URL}/topstories.json",
-            "new": f"{self.BASE_URL}/newstories.json",
-            "best": f"{self.BASE_URL}/beststories.json"
-        }
-        
-        if story_type not in endpoint_map:
-            raise ValueError(f"Invalid story_type: {story_type}")
-        
-        # Fetch story IDs
-        response = self.client.get(endpoint_map[story_type])
-        response.raise_for_status()
-        story_ids = response.json()[:self.max_stories]
-        
-        pebbles = []
-        for story_id in story_ids:
-            time.sleep(self.RATE_LIMIT_DELAY)
-            story = self._fetch_story(story_id)
-            if story:
-                pebbles.append(story)
-        
-        return pebbles
-    
-    def _fetch_story(self, story_id: int) -> Pebble | None:
-        """Fetch a single story by ID."""
         try:
-            response = self.client.get(f"{self.BASE_URL}/item/{story_id}.json")
-            response.raise_for_status()
-            data = response.json()
+            # Get top story IDs
+            top_ids = self._fetch_with_retry(f"{self.BASE_URL}/topstories.json")
             
-            # Skip if no URL (Ask HN, Show HN without links, etc.)
-            if not data.get("url"):
-                return None
+            stories = []
+            for story_id in top_ids[:self.max_items]:
+                try:
+                    story = self._fetch_with_retry(f"{self.BASE_URL}/item/{story_id}.json")
+                    
+                    # Skip if no URL (e.g. Ask HN posts)
+                    if not story.get('url'):
+                        continue
+                        
+                    stories.append({
+                        'url': story['url'],
+                        'title': story.get('title', 'Untitled'),
+                        'score': story.get('score', 0),
+                        'comments_url': f"https://news.ycombinator.com/item?id={story_id}"
+                    })
+                    
+                except Exception as e:
+                    logger.warning(f"Failed to fetch story {story_id}: {e}")
+                    continue
+                    
+            logger.info(f"Successfully fetched {len(stories)} HN stories")
+            return stories
             
-            return Pebble(
-                url=data["url"],
-                title=data.get("title", ""),
-                summary=data.get("text", "")[:500] if data.get("text") else "",
-                source=SourceType.HACKERNEWS,
-                metadata={
-                    "hn_id": story_id,
-                    "score": data.get("score", 0),
-                    "comments": data.get("descendants", 0),
-                    "author": data.get("by", "")
-                }
-            )
         except Exception as e:
-            # Log but don't crash on individual story failures
-            print(f"Failed to fetch HN story {story_id}: {e}")
-            return None
-    
-    def close(self):
-        """Close HTTP client."""
-        self.client.close()
+            logger.error(f"Failed to fetch HN top stories: {e}", exc_info=True)
+            return []

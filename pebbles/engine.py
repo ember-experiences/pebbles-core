@@ -1,90 +1,134 @@
-"""
-Pebble engine — orchestrate fetch → match → deliver pipeline.
-"""
+"""Core pebble discovery and delivery engine."""
+from typing import Protocol, List, Dict, Any
+from datetime import datetime
 
-import asyncio
-from typing import List
-from pebbles.models import Pebble, Recipient
-from pebbles.config import Settings
-from pebbles.sources import HackerNewsSource
-from pebbles.delivery import TelegramDelivery
-from pebbles.storage import PebbleStorage
+from pebbles.storage import Storage
+from pebbles.log import get_logger
+
+logger = get_logger(__name__)
 
 
-class PebbleEngine:
-    """Core orchestrator for the pebble pipeline."""
+class Source(Protocol):
+    """Protocol for pebble sources."""
     
-    def __init__(self, settings: Settings):
-        self.settings = settings
-        self.storage = PebbleStorage(settings.storage_path)
-        self.delivery = TelegramDelivery(settings.telegram_bot_token)
+    def fetch(self) -> List[Dict[str, Any]]:
+        """Fetch raw items from source.
+        
+        Returns:
+            List of raw item dicts with at least 'url' and 'title'
+        """
+        ...
+
+
+class Matcher(Protocol):
+    """Protocol for interest matchers."""
     
-    async def run(self):
-        """Execute one full cycle: fetch → match → deliver."""
-        print("🪨 Pebble engine starting...")
+    def match(self, item: Dict[str, Any]) -> bool:
+        """Check if item matches user interests.
         
-        # 1. Fetch pebbles from sources
-        pebbles = self._fetch_pebbles()
-        print(f"📥 Fetched {len(pebbles)} pebbles")
-        
-        # 2. Match pebbles to recipients based on interests
-        matches = self._match_interests(pebbles)
-        print(f"🎯 Matched {len(matches)} pebble-recipient pairs")
-        
-        # 3. Filter out already-delivered
-        new_matches = self._filter_delivered(matches)
-        print(f"✨ {len(new_matches)} new (undelivered) matches")
-        
-        if not new_matches:
-            print("✅ No new pebbles to deliver")
-            return
-        
-        # 4. Deliver
-        sent_count = await self.delivery.send_batch(new_matches)
-        print(f"📤 Delivered {sent_count}/{len(new_matches)} pebbles")
-        
-        # 5. Mark as delivered
-        for pebble, recipient in new_matches:
-            self.storage.mark_delivered(pebble.url, recipient.name)
-        
-        print("✅ Pebble run complete")
+        Args:
+            item: Raw item dict
+            
+        Returns:
+            True if item matches interests
+        """
+        ...
+
+
+class Filter(Protocol):
+    """Protocol for content filters."""
     
-    def _fetch_pebbles(self) -> List[Pebble]:
-        """Fetch pebbles from all configured sources."""
-        pebbles = []
+    def filter(self, item: Dict[str, Any]) -> bool:
+        """Check if item should be filtered out.
         
-        # For now, just HN. Add more sources here as they're built.
-        hn_source = HackerNewsSource(max_stories=30)
-        try:
-            pebbles.extend(hn_source.fetch("top"))
-        finally:
-            hn_source.close()
-        
-        return pebbles
+        Args:
+            item: Raw item dict
+            
+        Returns:
+            True if item should be kept, False to filter
+        """
+        ...
+
+
+class Delivery(Protocol):
+    """Protocol for delivery adapters."""
     
-    def _match_interests(self, pebbles: List[Pebble]) -> List[tuple[Pebble, Recipient]]:
-        """Match pebbles to recipients based on interest keywords."""
-        matches = []
+    def deliver(self, item: Dict[str, Any], recipient: str) -> bool:
+        """Deliver pebble to recipient.
         
-        for recipient in self.settings.recipients:
-            for pebble in pebbles:
-                if self._is_match(pebble, recipient):
-                    matches.append((pebble, recipient))
-        
-        return matches
+        Args:
+            item: Matched and filtered item
+            recipient: Recipient identifier (e.g. telegram user_id)
+            
+        Returns:
+            True if delivery succeeded
+        """
+        ...
+
+
+class Engine:
+    """Pebble discovery and delivery engine."""
     
-    def _is_match(self, pebble: Pebble, recipient: Recipient) -> bool:
-        """Check if a pebble matches a recipient's interests."""
-        # Combine title + summary for matching
-        text = f"{pebble.title} {pebble.summary}".lower()
+    def __init__(
+        self,
+        sources: List[Source],
+        matcher: Matcher,
+        filter: Filter,
+        delivery: Delivery,
+        recipient: str,
+        storage: Storage
+    ):
+        self.sources = sources
+        self.matcher = matcher
+        self.filter = filter
+        self.delivery = delivery
+        self.recipient = recipient
+        self.storage = storage
         
-        # Check if any interest keyword appears in the text
-        return any(interest.lower() in text for interest in recipient.interests)
-    
-    def _filter_delivered(self, matches: List[tuple[Pebble, Recipient]]) -> List[tuple[Pebble, Recipient]]:
-        """Remove pebbles that have already been delivered to these recipients."""
-        return [
-            (pebble, recipient)
-            for pebble, recipient in matches
-            if not self.storage.has_delivered(pebble.url, recipient.name)
-        ]
+    def run(self) -> int:
+        """Run one discovery cycle.
+        
+        Returns:
+            Number of pebbles delivered
+        """
+        delivered_count = 0
+        
+        for source in self.sources:
+            try:
+                logger.info(f"Fetching from source: {source.__class__.__name__}")
+                items = source.fetch()
+                logger.info(f"Fetched {len(items)} items from {source.__class__.__name__}")
+                
+                for item in items:
+                    url = item.get('url')
+                    if not url:
+                        logger.warning(f"Item missing URL, skipping: {item}")
+                        continue
+                        
+                    # Dedup check
+                    if self.storage.was_delivered(url, self.recipient):
+                        continue
+                        
+                    # Match against interests
+                    if not self.matcher.match(item):
+                        continue
+                        
+                    # Apply filters
+                    if not self.filter.filter(item):
+                        logger.info(f"Item filtered: {item.get('title', url)}")
+                        continue
+                        
+                    # Deliver
+                    if self.delivery.deliver(item, self.recipient):
+                        self.storage.mark_delivered(url, self.recipient)
+                        delivered_count += 1
+                        logger.info(f"Delivered: {item.get('title', url)} to {self.recipient}")
+                    else:
+                        logger.error(f"Delivery failed: {item.get('title', url)}")
+                        
+            except Exception as e:
+                logger.error(f"Source {source.__class__.__name__} failed: {e}", exc_info=True)
+                continue
+                
+        logger.info(f"Discovery cycle complete. Delivered {delivered_count} pebbles.")
+        return delivered_count

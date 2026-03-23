@@ -1,100 +1,174 @@
-"""
-Tests for pebble engine, sources, and storage.
-"""
-
+"""Tests for pebble engine."""
 import pytest
-import asyncio
 from pathlib import Path
-from pebbles.models import Pebble, Recipient, SourceType, DeliveryMethod
-from pebbles.sources import HackerNewsSource
-from pebbles.storage import PebbleStorage
-from pebbles.engine import PebbleEngine
-from pebbles.config import Settings
+import tempfile
+
+from pebbles.engine import Engine
+from pebbles.storage import Storage
 
 
-@pytest.fixture
-def temp_storage(tmp_path):
-    """Temporary database for testing."""
-    db_path = tmp_path / "test_pebbles.db"
-    return PebbleStorage(db_path)
-
-
-@pytest.fixture
-def test_settings(tmp_path):
-    """Settings with test database."""
-    settings = Settings()
-    settings.storage_path = tmp_path / "test_pebbles.db"
-    settings.recipients = [
-        Recipient(
-            name="Test User",
-            telegram_chat_id=123456,
-            interests=["AI", "rust", "databases"],
-            delivery_method=DeliveryMethod.TELEGRAM
-        )
-    ]
-    return settings
-
-
-def test_hackernews_fetch():
-    """Test HN source fetches and parses stories."""
-    source = HackerNewsSource(max_stories=5)
-    try:
-        pebbles = source.fetch("top")
+class MockSource:
+    """Mock source for testing."""
+    
+    def __init__(self, items=None, should_fail=False):
+        self.items = items or []
+        self.should_fail = should_fail
         
-        assert len(pebbles) > 0
-        assert all(isinstance(p, Pebble) for p in pebbles)
-        assert all(p.source == SourceType.HACKERNEWS for p in pebbles)
-        assert all(p.url for p in pebbles)
-        assert all(p.title for p in pebbles)
-    finally:
-        source.close()
+    def fetch(self):
+        if self.should_fail:
+            raise Exception("Mock source failure")
+        return self.items
 
 
-def test_storage_dedup(temp_storage):
-    """Test storage prevents duplicate deliveries."""
-    url = "https://example.com/article"
-    recipient = "Test User"
+class MockMatcher:
+    """Mock matcher that accepts everything."""
     
-    # First delivery
-    assert not temp_storage.has_delivered(url, recipient)
-    assert temp_storage.mark_delivered(url, recipient) is True
-    
-    # Second attempt
-    assert temp_storage.has_delivered(url, recipient)
-    assert temp_storage.mark_delivered(url, recipient) is False
+    def match(self, item):
+        return True
 
 
-def test_interest_matching(test_settings):
-    """Test engine matches pebbles to recipient interests."""
-    engine = PebbleEngine(test_settings)
+class MockFilter:
+    """Mock filter that accepts everything."""
     
-    pebbles = [
-        Pebble(
-            url="https://example.com/ai",
-            title="New AI breakthrough in transformers",
-            summary="",
-            source=SourceType.HACKERNEWS
-        ),
-        Pebble(
-            url="https://example.com/unrelated",
-            title="How to bake bread",
-            summary="",
-            source=SourceType.HACKERNEWS
+    def filter(self, item):
+        return True
+
+
+class MockDelivery:
+    """Mock delivery that tracks what was delivered."""
+    
+    def __init__(self):
+        self.delivered = []
+        
+    def deliver(self, item, recipient):
+        self.delivered.append((item, recipient))
+        return True
+
+
+def test_engine_delivers_new_items():
+    """Test that engine delivers new items."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db_path = Path(tmpdir) / 'test.db'
+        storage = Storage(str(db_path))
+        
+        items = [
+            {'url': 'https://example.com/1', 'title': 'Test 1'},
+            {'url': 'https://example.com/2', 'title': 'Test 2'},
+        ]
+        
+        source = MockSource(items)
+        matcher = MockMatcher()
+        filter_obj = MockFilter()
+        delivery = MockDelivery()
+        
+        engine = Engine(
+            sources=[source],
+            matcher=matcher,
+            filter=filter_obj,
+            delivery=delivery,
+            recipient='test_user',
+            storage=storage
         )
-    ]
-    
-    matches = engine._match_interests(pebbles)
-    
-    # Should match first pebble (contains "AI")
-    assert len(matches) == 1
-    assert matches[0][0].url == "https://example.com/ai"
+        
+        count = engine.run()
+        
+        assert count == 2
+        assert len(delivery.delivered) == 2
 
 
-@pytest.mark.asyncio
-async def test_full_pipeline_dry_run(test_settings):
-    """Test full engine pipeline (without actual Telegram delivery)."""
-    # This test would require mocking TelegramDelivery
-    # For now, just verify engine initializes
-    engine = PebbleEngine(test_settings)
-    assert engine.storage is not None
-    assert engine.delivery is not None
+def test_engine_deduplicates():
+    """Test that engine doesn't deliver duplicates."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db_path = Path(tmpdir) / 'test.db'
+        storage = Storage(str(db_path))
+        
+        items = [
+            {'url': 'https://example.com/1', 'title': 'Test 1'},
+        ]
+        
+        source = MockSource(items)
+        matcher = MockMatcher()
+        filter_obj = MockFilter()
+        delivery = MockDelivery()
+        
+        engine = Engine(
+            sources=[source],
+            matcher=matcher,
+            filter=filter_obj,
+            delivery=delivery,
+            recipient='test_user',
+            storage=storage
+        )
+        
+        # First run delivers
+        count1 = engine.run()
+        assert count1 == 1
+        
+        # Second run should skip (already delivered)
+        delivery.delivered.clear()
+        count2 = engine.run()
+        assert count2 == 0
+        assert len(delivery.delivered) == 0
+
+
+def test_engine_handles_source_failure():
+    """Test that engine continues when a source fails."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db_path = Path(tmpdir) / 'test.db'
+        storage = Storage(str(db_path))
+        
+        # First source fails, second source succeeds
+        failing_source = MockSource(should_fail=True)
+        working_source = MockSource([
+            {'url': 'https://example.com/1', 'title': 'Test 1'}
+        ])
+        
+        matcher = MockMatcher()
+        filter_obj = MockFilter()
+        delivery = MockDelivery()
+        
+        engine = Engine(
+            sources=[failing_source, working_source],
+            matcher=matcher,
+            filter=filter_obj,
+            delivery=delivery,
+            recipient='test_user',
+            storage=storage
+        )
+        
+        # Should deliver from working source despite failing source
+        count = engine.run()
+        assert count == 1
+        assert len(delivery.delivered) == 1
+
+
+def test_engine_skips_items_without_url():
+    """Test that engine skips items missing URL."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db_path = Path(tmpdir) / 'test.db'
+        storage = Storage(str(db_path))
+        
+        items = [
+            {'title': 'No URL'},  # Missing URL
+            {'url': 'https://example.com/1', 'title': 'Valid'},
+        ]
+        
+        source = MockSource(items)
+        matcher = MockMatcher()
+        filter_obj = MockFilter()
+        delivery = MockDelivery()
+        
+        engine = Engine(
+            sources=[source],
+            matcher=matcher,
+            filter=filter_obj,
+            delivery=delivery,
+            recipient='test_user',
+            storage=storage
+        )
+        
+        count = engine.run()
+        
+        # Should only deliver the valid item
+        assert count == 1
+        assert delivery.delivered[0][0]['url'] == 'https://example.com/1'
