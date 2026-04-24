@@ -1,72 +1,80 @@
-"""
-Telegram delivery — send pebbles to Telegram chats.
-"""
+"""Telegram delivery adapter — synchronous, implements engine's Delivery protocol."""
 
 import asyncio
-from typing import List
+import logging
+from typing import Any
+
 from telegram import Bot
 from telegram.error import TelegramError
-from pebbles.models import Pebble, Recipient
+
+logger = logging.getLogger(__name__)
 
 
 class TelegramDelivery:
-    """Send pebbles to Telegram recipients."""
-    
+    """Deliver pebble items to Telegram recipients.
+
+    Implements the `Delivery` protocol from pebbles.engine:
+        def deliver(item: dict, recipient: str) -> bool
+
+    `recipient` is the chat_id as a string.
+    """
+
     def __init__(self, bot_token: str):
         self.bot = Bot(token=bot_token)
-    
-    async def send(self, pebble: Pebble, recipient: Recipient) -> bool:
-        """
-        Send a single pebble to a recipient.
-        
+
+    def deliver(self, item: dict[str, Any], recipient: str) -> bool:
+        """Deliver a raw item dict to a Telegram recipient.
+
+        Args:
+            item: Raw item dict with at least 'title' and 'url'.
+                  Optional: 'description', 'metadata' (dict with 'score', 'comments').
+            recipient: Telegram chat_id as a string.
+
         Returns:
-            True if sent successfully, False otherwise
+            True if delivery succeeded.
         """
-        message = self._format_message(pebble)
-        
+        message = self._format_message(item)
         try:
-            await self.bot.send_message(
-                chat_id=recipient.telegram_chat_id,
-                text=message,
-                parse_mode="Markdown",
-                disable_web_page_preview=False
-            )
+            asyncio.run(self._send_async(recipient, message))
             return True
         except TelegramError as e:
-            print(f"Failed to send pebble to {recipient.name}: {e}")
+            logger.error(f"Telegram delivery failed to {recipient}: {e}")
             return False
-    
-    async def send_batch(self, pebbles: List[tuple[Pebble, Recipient]]) -> int:
-        """
-        Send multiple pebbles.
-        
-        Args:
-            pebbles: List of (pebble, recipient) tuples
-        
-        Returns:
-            Number of successfully sent pebbles
-        """
-        tasks = [self.send(pebble, recipient) for pebble, recipient in pebbles]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        return sum(1 for r in results if r is True)
-    
-    def _format_message(self, pebble: Pebble) -> str:
-        """Format a pebble as a Telegram message."""
-        lines = [f"🪨 *{pebble.title}*"]
-        
-        if pebble.summary:
-            lines.append(f"\n{pebble.summary}")
-        
-        lines.append(f"\n[Read more]({pebble.url})")
-        
-        # Add metadata if present
-        if pebble.metadata:
+        except Exception as e:
+            logger.error(f"Unexpected delivery error to {recipient}: {e}")
+            return False
+
+    async def _send_async(self, chat_id: str, message: str):
+        """Perform the actual send — python-telegram-bot's Bot.send_message is async."""
+        await self.bot.send_message(
+            chat_id=chat_id,
+            text=message,
+            parse_mode="Markdown",
+            disable_web_page_preview=False,
+        )
+
+    def _format_message(self, item: dict[str, Any]) -> str:
+        """Format an item dict as a Telegram message."""
+        title = item.get("title", "(untitled)")
+        url = item.get("url", "")
+        description = item.get("description", "")
+
+        lines = [f"🪨 *{title}*"]
+
+        if description:
+            lines.append(f"\n{description}")
+
+        if url:
+            lines.append(f"\n[Read more]({url})")
+
+        metadata = item.get("metadata") or {}
+        if metadata:
             meta_parts = []
-            if "score" in pebble.metadata:
-                meta_parts.append(f"⬆️ {pebble.metadata['score']}")
-            if "comments" in pebble.metadata:
-                meta_parts.append(f"💬 {pebble.metadata['comments']}")
+            if "score" in metadata:
+                meta_parts.append(f"⬆️ {metadata['score']}")
+            if "comments" in metadata:
+                meta_parts.append(f"💬 {metadata['comments']}")
             if meta_parts:
                 lines.append(f"\n_{' · '.join(meta_parts)}_")
-        
+
         return "\n".join(lines)

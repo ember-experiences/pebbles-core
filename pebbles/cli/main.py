@@ -2,7 +2,6 @@
 import click
 import time
 from pathlib import Path
-from datetime import datetime, timedelta
 
 from pebbles.engine import Engine
 from pebbles.storage import Storage
@@ -82,43 +81,21 @@ def run(keywords, telegram_token, telegram_chat, loop):
 def status():
     """Show pebble delivery statistics."""
     db_path = Path.home() / '.pebbles' / 'pebbles.db'
-    
+
     if not db_path.exists():
         click.echo("No pebbles database found. Run 'pebbles run' first.")
         return
-        
+
     storage = Storage(str(db_path))
-    conn = storage.conn
-    cursor = conn.cursor()
-    
-    # Total delivered
-    cursor.execute("SELECT COUNT(*) FROM delivered")
-    total = cursor.fetchone()[0]
-    
-    # Delivered in last 24h
-    yesterday = (datetime.now() - timedelta(days=1)).isoformat()
-    cursor.execute(
-        "SELECT COUNT(*) FROM delivered WHERE delivered_at > ?",
-        (yesterday,)
-    )
-    last_24h = cursor.fetchone()[0]
-    
-    # Top 5 recipients by count
-    cursor.execute("""
-        SELECT recipient, COUNT(*) as count
-        FROM delivered
-        GROUP BY recipient
-        ORDER BY count DESC
-        LIMIT 5
-    """)
-    top_recipients = cursor.fetchall()
-    
-    click.echo(f"\n📊 Pebbles Status\n")
-    click.echo(f"Total delivered: {total}")
-    click.echo(f"Last 24h: {last_24h}")
-    click.echo(f"\nTop 5 recipients:")
-    for recipient, count in top_recipients:
-        click.echo(f"  {recipient}: {count} pebbles")
+    stats = storage.get_stats()
+
+    click.echo("\n📊 Pebbles Status\n")
+    click.echo(f"Total delivered: {stats['total_deliveries']}")
+    click.echo(f"Last 24h: {stats['last_24h']}")
+    if stats['top_recipients']:
+        click.echo("\nTop 5 recipients:")
+        for recipient, count in stats['top_recipients']:
+            click.echo(f"  {recipient}: {count} pebbles")
     click.echo()
 
 

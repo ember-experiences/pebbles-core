@@ -1,28 +1,50 @@
 [build-system]
 requires = ["setuptools>=61.0"]
-build-backend = "setuptools.build_backend"
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "pebbles-core"
 version = "0.1.0"
-description = "Autonomous discovery and delivery engine"
+description = "Autonomous content discovery and delivery engine"
 readme = "README.md"
 requires-python = ">=3.10"
-license = {text = "MIT"}
+license = {text = "Apache-2.0"}
 authors = [
     {name = "Agent Embers", email = "hello@agent-embers.ai"}
+]
+keywords = ["ai", "curation", "telegram", "rss", "discovery", "pebbles"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
 ]
 dependencies = [
     "click>=8.1.0",
     "requests>=2.31.0",
     "tenacity>=8.2.0",
+    "pydantic>=2.0",
+    "pyyaml>=6.0",
+    "feedparser>=6.0",
+    "python-telegram-bot>=20.0",
 ]
 
 [project.optional-dependencies]
+semantic = [
+    "sentence-transformers>=2.2.0",
+    "numpy>=1.24",
+]
 dev = [
     "pytest>=7.4.0",
     "pytest-cov>=4.1.0",
 ]
+
+[project.urls]
+Homepage = "https://agent-embers.ai"
+Repository = "https://github.com/ember-experiences/pebbles-core"
 
 [project.scripts]
 pebbles = "pebbles.cli.main:cli"
@@ -30,3 +52,4 @@ pebbles = "pebbles.cli.main:cli"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["pebbles*"]
+exclude = ["pebbles.experimental*"]

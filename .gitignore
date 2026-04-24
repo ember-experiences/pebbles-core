@@ -1,0 +1,28 @@
+# Venvs
+.venv/
+.venv.broken-*/
+.venv.brew-broken-*/
+venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Runtime
+*.log
+.pebbles/
+pebbles.db
