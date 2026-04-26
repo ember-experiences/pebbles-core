@@ -1,4 +1,10 @@
-"""Storage layer for tracking delivered Pebbles."""
+"""Storage layer for tracking delivered Pebbles.
+
+v0.2 introduces `pebbles.core.storage.Storage` as a Protocol. The concrete
+JSON-file impl in this module is renamed `JsonStorage`. The name `Storage`
+is preserved as an alias to `JsonStorage` so v0.1.0 code that imports
+`from pebbles.storage import Storage` keeps working.
+"""
 
 import json
 import logging
@@ -8,7 +14,7 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 
-class Storage:
+class JsonStorage:
     """Simple file-based storage for delivery tracking."""
 
     def __init__(self, db_path: Path | str):
@@ -81,3 +87,10 @@ class Storage:
             "last_24h": last_24h,
             "top_recipients": top_recipients,
         }
+
+
+# Backwards-compat alias for v0.1.0 callers.
+# `from pebbles.storage import Storage` continues to work.
+# New code should prefer `from pebbles.storage import JsonStorage` for clarity,
+# or `from pebbles.core.storage import Storage` for the Protocol.
+Storage = JsonStorage

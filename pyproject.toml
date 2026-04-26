@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pebbles-core"
-version = "0.1.0"
-description = "Autonomous content discovery and delivery engine"
+version = "0.2.0"
+description = "Autonomous content discovery and delivery engine — with primitives for principal-shaped agent capabilities"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "Apache-2.0"}
@@ -30,12 +30,16 @@ dependencies = [
     "pyyaml>=6.0",
     "feedparser>=6.0",
     "python-telegram-bot>=20.0",
+    "anthropic>=0.34.0",
 ]
 
 [project.optional-dependencies]
 semantic = [
     "sentence-transformers>=2.2.0",
     "numpy>=1.24",
+]
+supabase = [
+    "supabase>=2.0",
 ]
 dev = [
     "pytest>=7.4.0",
