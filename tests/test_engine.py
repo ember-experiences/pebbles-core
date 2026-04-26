@@ -4,7 +4,7 @@ from pathlib import Path
 import tempfile
 
 from pebbles.engine import Engine
-from pebbles.storage import Storage
+from pebbles.storage import JsonStorage as Storage
 
 
 class MockSource:

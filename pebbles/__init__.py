@@ -3,7 +3,8 @@
 v0.1 (recipient-as-user, shipped on PyPI 2026-04-23):
 - Pebble, Recipient, Interest, PebblesConfig
 - Engine, Source, Matcher, Filter, Delivery
-- Storage (alias for JsonStorage), InterestMatcher
+- JsonStorage (was Storage in v0.1; renamed in v0.2 — see compat note below)
+- InterestMatcher
 
 v0.2 (recipient-as-public-internet primitives, this version):
 - Principal — speaking identity with hierarchy
@@ -13,6 +14,7 @@ v0.2 (recipient-as-public-internet primitives, this version):
 - LLMAdapter, LLMResponse
 - MetricsEmitter
 - CircuitBreaker, BreakerSet, CircuitBreakerOpenError
+- Storage — the v0.2 Protocol (interface type)
 
 Reference impls live in pebbles.core.* submodules and are NOT re-exported
 at the top level — keeping the namespace clean. Import explicitly:
@@ -21,7 +23,14 @@ at the top level — keeping the namespace clean. Import explicitly:
     from pebbles.core.rater import KeywordRater, LLMJudgeRater
     from pebbles.core.llm import AnthropicAdapter
     from pebbles.core.approval import MockApprovalChannel
-    from pebbles.storage import JsonStorage  # the v0.1 concrete class
+    from pebbles import JsonStorage  # the v0.1 concrete class
+
+v0.1 → v0.2 compatibility note:
+In v0.1.0, `from pebbles import Storage` returned the concrete JSON-file
+class. In v0.2.0, `Storage` is the Protocol type (interface) — the headline
+name for type-hints in v0.2-native code. v0.1 callers wanting the old
+concrete-class meaning should import `from pebbles import JsonStorage` or
+`from pebbles.compat import Storage`.
 """
 
 __version__ = "0.2.0"
@@ -30,7 +39,7 @@ __version__ = "0.2.0"
 from pebbles.models import Pebble, Recipient, Interest
 from pebbles.config import PebblesConfig
 from pebbles.engine import Engine, Source, Matcher, Filter, Delivery
-from pebbles.storage import Storage  # alias to JsonStorage; works for v0.1 callers
+from pebbles.storage import JsonStorage
 from pebbles.matcher import InterestMatcher
 
 # v0.2 surface — new primitives
@@ -41,10 +50,10 @@ from pebbles.core.rater import Rater, RaterInput, RaterOutput
 from pebbles.core.llm import LLMAdapter, LLMResponse
 from pebbles.core.metrics import MetricsEmitter
 from pebbles.core.breakers import CircuitBreaker, BreakerSet, CircuitBreakerOpenError
-from pebbles.core.storage import Storage as StorageProtocol  # the Protocol type
+from pebbles.core.storage import Storage  # the Protocol — headline name in v0.2
 
 __all__ = [
-    # v0.1
+    # v0.1 surface
     "Pebble",
     "Recipient",
     "Interest",
@@ -54,7 +63,7 @@ __all__ = [
     "Matcher",
     "Filter",
     "Delivery",
-    "Storage",  # alias to JsonStorage
+    "JsonStorage",
     "InterestMatcher",
     # v0.2 primitives
     "Principal",
@@ -73,5 +82,5 @@ __all__ = [
     "CircuitBreaker",
     "BreakerSet",
     "CircuitBreakerOpenError",
-    "StorageProtocol",  # the Protocol shape (different from `Storage` alias)
+    "Storage",  # the Protocol
 ]

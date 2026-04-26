@@ -1,9 +1,12 @@
 """Storage layer for tracking delivered Pebbles.
 
 v0.2 introduces `pebbles.core.storage.Storage` as a Protocol. The concrete
-JSON-file impl in this module is renamed `JsonStorage`. The name `Storage`
-is preserved as an alias to `JsonStorage` so v0.1.0 code that imports
-`from pebbles.storage import Storage` keeps working.
+JSON-file impl in this module is renamed `JsonStorage` (matches what it is).
+
+For v0.1 callers using `from pebbles.storage import Storage`: that import
+returns the Protocol type in v0.2, NOT the concrete JsonStorage. Callers
+who specifically want the JSON impl should import `JsonStorage` directly,
+or use `pebbles.compat.Storage` for a clean v0.1-compat alias.
 """
 
 import json
@@ -89,8 +92,8 @@ class JsonStorage:
         }
 
 
-# Backwards-compat alias for v0.1.0 callers.
-# `from pebbles.storage import Storage` continues to work.
-# New code should prefer `from pebbles.storage import JsonStorage` for clarity,
-# or `from pebbles.core.storage import Storage` for the Protocol.
-Storage = JsonStorage
+# Re-export the Protocol type as `Storage` from this module so type-hint
+# imports `from pebbles.storage import Storage` get the interface.
+# v0.1 callers expecting the concrete class should import `JsonStorage`
+# (this module) or `pebbles.compat.Storage` (alias to JsonStorage).
+from pebbles.core.storage import Storage  # noqa: E402, F401
