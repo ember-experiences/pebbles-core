@@ -93,6 +93,10 @@ class AnthropicAdapter:
             **kwargs,
         )
         text = response.content[0].text if response.content else ""
+        logger.info(
+            f"[anthropic] Tokens: {response.usage.input_tokens} in / "
+            f"{response.usage.output_tokens} out | model: {response.model}"
+        )
         return LLMResponse(
             text=text,
             usage={
@@ -135,4 +139,61 @@ class AnthropicAdapter:
             return json.loads(text)
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse JSON response: {text[:200]}")
+            raise ValueError(f"LLM response was not valid JSON: {e}") from e
+
+
+class OllamaAdapter:
+    """Ollama local model adapter. Zero API cost.
+
+    Uses the Ollama REST API at http://localhost:11434.
+    Recommended model for relevance scoring: qwen2.5:7b
+    """
+
+    def __init__(self, model: str = "qwen2.5:7b", base_url: str = "http://localhost:11434"):
+        self.model = model
+        self.base_url = base_url.rstrip("/")
+
+    def complete(self, system, messages, max_tokens=4096, temperature=0.0, **kwargs) -> LLMResponse:
+        import urllib.request
+        prompt_messages = [{"role": "system", "content": system}] + messages
+        payload = json.dumps({
+            "model": self.model,
+            "messages": prompt_messages,
+            "stream": False,
+            "options": {"temperature": temperature, "num_predict": max_tokens},
+        }).encode()
+        req = urllib.request.Request(
+            f"{self.base_url}/api/chat",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            data = json.loads(resp.read())
+        text = data.get("message", {}).get("content", "")
+        in_tok = data.get("prompt_eval_count", 0)
+        out_tok = data.get("eval_count", 0)
+        logger.info(f"[ollama:{self.model}] Tokens: {in_tok} in / {out_tok} out")
+        return LLMResponse(text=text, usage={"input_tokens": in_tok, "output_tokens": out_tok}, model=self.model)
+
+    def complete_json(self, system, messages, schema=None, max_tokens=4096, **kwargs) -> dict:
+        json_system = system
+        if schema is not None:
+            json_system = (
+                f"{system}\n\n"
+                f"Respond with valid JSON matching this schema:\n{json.dumps(schema, indent=2)}\n"
+                f"Output ONLY the JSON object — no prose, no code fences."
+            )
+        else:
+            json_system = f"{system}\n\nRespond with valid JSON only — no prose, no code fences."
+
+        response = self.complete(system=json_system, messages=messages, max_tokens=max_tokens,
+                                 temperature=kwargs.pop("temperature", 0.0), **kwargs)
+        text = response.text.strip()
+        if text.startswith("```"):
+            lines = text.split("\n")
+            text = "\n".join(lines[1:-1]) if len(lines) > 2 else text
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError as e:
+            logger.error(f"[ollama] Failed to parse JSON: {text[:200]}")
             raise ValueError(f"LLM response was not valid JSON: {e}") from e
